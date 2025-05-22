@@ -1,0 +1,1 @@
+A chat-style RAG system that queries daily-updated Federal Register data using a local LLM (Qwen2.5 via Ollama), MySQL database, FastAPI, and a simple HTML UI.
