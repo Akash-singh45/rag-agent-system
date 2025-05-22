@@ -1,29 +1,27 @@
 from fastapi import FastAPI
-import aiomysql
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from src.agent import rag_agent
 
 app = FastAPI()
 
-@app.on_event("startup")
-async def startup_event():
-    # Initialize MySQL connection pool
-    app.state.pool = await aiomysql.create_pool(
-        host="localhost", user="root", password="Akash@sql#41", db="federal_register", autocommit=True
-    )
+# Serve static files from the "static" directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    # Close MySQL connection pool
-    app.state.pool.close()
-    await app.state.pool.wait_closed()
+# Add CORS middleware to allow the front-end to access the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (for development)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/query/{query}")
 async def query_endpoint(query: str):
-    # Call the RAG agent to process the query
     response = await rag_agent(query)
     return {"query": query, "response": response}
 
-# Example usage: Run with `uvicorn src.api:app --reload`
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

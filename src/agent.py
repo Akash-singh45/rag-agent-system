@@ -2,9 +2,28 @@ import asyncio
 import aiomysql
 from openai import AsyncOpenAI
 from typing import List, Dict, Any
+import re
+from datetime import datetime
 
 # Initialize Ollama client (using OpenAI-compatible API)
-client = AsyncOpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+client = AsyncOpenAI(base_url="http://localhost:11435/v1", api_key="ollama")
+
+
+def parse_date_from_query(query: str) -> str:
+    # Regular expression to match dates like "May 22 2025" or "2025-05-22"
+    date_pattern = r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b'
+    match = re.search(date_pattern, query, re.IGNORECASE)
+    if match:
+        date_str = match.group(0)
+        # Convert "May 22 2025" to "2025-05-22"
+        try:
+            if "-" in date_str:
+                return date_str
+            date_obj = datetime.strptime(date_str, "%B %d %Y")
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    return None
 
 
 async def retrieve_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -13,16 +32,31 @@ async def retrieve_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]
     )
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            # Simple keyword search (can be enhanced with full-text search or embeddings)
-            await cur.execute(
-                """
-                SELECT document_number, title, publication_date, abstract, agencies
-                FROM documents
-                WHERE title LIKE %s OR abstract LIKE %s
-                LIMIT %s
-                """,
-                (f"%{query}%", f"%{query}%", limit)
-            )
+            # Extract date from query
+            date = parse_date_from_query(query)
+
+            if date:
+                # If a date is found, search by publication_date
+                await cur.execute(
+                    """
+                    SELECT document_number, title, publication_date, abstract, agencies
+                    FROM documents
+                    WHERE publication_date = %s
+                    LIMIT %s
+                    """,
+                    (date, limit)
+                )
+            else:
+                # Otherwise, fall back to searching title or abstract
+                await cur.execute(
+                    """
+                    SELECT document_number, title, publication_date, abstract, agencies
+                    FROM documents
+                    WHERE title LIKE %s OR abstract LIKE %s
+                    LIMIT %s
+                    """,
+                    (f"%{query}%", f"%{query}%", limit)
+                )
             results = await cur.fetchall()
     pool.close()
     await pool.wait_closed()
